@@ -90,9 +90,10 @@
 #' dbname: herokudb 
 #' query: select * from emp
 #'
-#' @param data.file The name of the data file to be read.
+#' @param query.file The name of the query file to be read.
 #' @param filename The path to the data set to be loaded.
 #' @param variable.name The name to be assigned to in the global environment.
+#' @query.id the id of the query the connector should get
 #'
 #' @return No value is returned; this function is called for its side effects.
 #'
@@ -102,19 +103,32 @@
 #' \dontrun{sql.reader('example.sql', 'data/example.sql', 'example')}
 #'
 #' @include require.package.R
-sql.reader <- function(data.file, filename, variable.name)
+sql.reader <- function(query.id, query.file, filename, variable.name)
 {
-  database.info <- ProjectTemplate:::translate.dcf(filename)
-
+  
+  database.info <- ProjectTemplate:::translate.dcf(paste('config/',filename,sep =''))
+  
+  # We are testing the correctness of query before we open a db connection
+  #query.info <- ProjectTemplate:::translate.dcf(paste("data/", query.file, sep=""))
+  source(paste("data/", query.file, sep=""))
+  if ( nrow(query.list) < query.id ){
+    warning('query.id is out of range.')
+    return()
+  }
+  query <- query.list[query.id]
+  table <- database.info[['table']]
+  #query <- database.info[['query']]
+  
+  
   if (! is.null(database.info[['connection']]))
   {
     connection_filename <- paste("data/", database.info[['connection']],".sql-connection", sep="")
     connection.info <- ProjectTemplate:::translate.dcf(connection_filename)
-
+    
     # Allow .sql to override options defined in .connection
     database.info <- modifyList(connection.info, database.info) 
   }
-
+  
   if (! (database.info[['type']] %in% c('mysql', 'sqlite', 'odbc', 'postgres', 'oracle', 'jdbc', 'heroku')))
   {
     warning('Only databases reachable through RMySQL, RSQLite, RODBC ROracle or RPostgreSQL are currently supported.')
@@ -123,7 +137,7 @@ sql.reader <- function(data.file, filename, variable.name)
            envir = .GlobalEnv)
     return()
   }
-
+  
   # Draft code for ODBC support.
   if (database.info[['type']] == 'odbc')
   {
@@ -162,28 +176,28 @@ sql.reader <- function(data.file, filename, variable.name)
                             unix.socket = database.info[['socket']])
     dbGetQuery(connection, "SET NAMES 'utf8'") # Switch to utf-8 strings
   }
-
+  
   if (database.info[['type']] == 'sqlite')
   {
     library('RSQLite')
     sqlite.driver <- dbDriver("SQLite")
-
+    
     connection <- dbConnect(sqlite.driver,
                             dbname = database.info[['dbname']])
   }
-
+  
   if (database.info[['type']] == 'postgres')
   {
     library('RPostgreSQL')
     mysql.driver <- dbDriver("PostgreSQL")
-
+    
     connection <- dbConnect(mysql.driver,
                             user = database.info[['user']],
                             password = database.info[['password']],
                             host = database.info[['host']],
                             dbname = database.info[['dbname']])
   }
-
+  
   if (database.info[['type']] == 'oracle')
   {
     library('RMySQL')
@@ -200,63 +214,62 @@ sql.reader <- function(data.file, filename, variable.name)
                             password = database.info[['password']],
                             dbname = database.info[['dbname']])
   }
-
+  
   if (database.info[['type']] == 'jdbc')
   {
     library('RJDBC')
-
+    
     ident.quote <- NA
     if('identquote' %in% names(database.info))
-       ident.quote <- database.info[['identquote']]
-		
-		if(is.null(database.info[['classpath']])) {
-			database.info[['classpath']] = ''
-		}
-
+      ident.quote <- database.info[['identquote']]
+    
+    if(is.null(database.info[['classpath']])) {
+      database.info[['classpath']] = ''
+    }
+    
     rjdbc.driver <- JDBC(database.info[['class']], database.info[['classpath']], ident.quote)
     connection <- dbConnect(rjdbc.driver,
                             database.info[['url']],
                             user = database.info[['user']],
                             password = database.info[['password']])
   }
-
+  
   if (database.info[['type']] == 'heroku')
   {
     library('RJDBC')
-		
-		if(is.null(database.info[['classpath']])) {
-			database.info[['classpath']] <- ''
-	}
-
-		database.info[['class']] <- 'org.postgresql.Driver'
-		
-		database.info[['url']] <- paste('jdbc:postgresql://', database.info[['host']], 
-				':', database.info[['port']], 
-				'/', database.info[['dbname']], 
-				'?ssl=true&sslfactory=org.postgresql.ssl.NonValidatingFactory', sep = '')
-		
+    
+    if(is.null(database.info[['classpath']])) {
+      database.info[['classpath']] <- ''
+    }
+    
+    database.info[['class']] <- 'org.postgresql.Driver'
+    
+    database.info[['url']] <- paste('jdbc:postgresql://', database.info[['host']], 
+                                    ':', database.info[['port']], 
+                                    '/', database.info[['dbname']], 
+                                    '?ssl=true&sslfactory=org.postgresql.ssl.NonValidatingFactory', sep = '')
+    
     rjdbc.driver <- JDBC(database.info[['class']], database.info[['classpath']])
     connection <- dbConnect(rjdbc.driver,
                             database.info[['url']],
                             user = database.info[['user']],
                             password = database.info[['password']])
   }
-
+  
   # Added support for queries.
   # User should specify either a table name or a query to execute, but not both.
-  table <- database.info[['table']]
-  query <- database.info[['query']]
+  
   
   # If both a table and a query are specified, favor the query.
   if (! is.null(table) && ! is.null(query))
   {
-      warning(paste("'query' parameter in ",
-                    filename,
-                    " overrides 'table' parameter.",
-                    sep = ''))
-      table <- NULL
+    warning(paste("'query' parameter in ",
+                  filename,
+                  " overrides 'table' parameter.",
+                  sep = ''))
+    table <- NULL
   }
-
+  
   if (is.null(table) && is.null(query))
   {
     warning("Either 'table' or 'query' must be specified in a .sql file")
@@ -273,7 +286,7 @@ sql.reader <- function(data.file, filename, variable.name)
       data.parcel <- dbReadTable(connection,
                                  table,
                                  row.names = NULL)
-    
+      
       assign(ProjectTemplate:::clean.variable.name(table),
              data.parcel,
              envir = .GlobalEnv)
@@ -300,14 +313,14 @@ sql.reader <- function(data.file, filename, variable.name)
       return()
     }
   }
-
+  
   if (! is.null(query))
   {
-		if (length(grep('\\@\\{.*\\}', query)) != 0) {
-			# Do string interpolation
-			require.package('GetoptLong')
-			query <- qq(query)
-		}
+    if (length(grep('\\@\\{.*\\}', query)) != 0) {
+      # Do string interpolation
+      require.package('GetoptLong')
+      query <- qq(query)
+    }
     data.parcel <- try(dbGetQuery(connection, query))
     err <- dbGetException(connection)
     
@@ -332,7 +345,7 @@ sql.reader <- function(data.file, filename, variable.name)
       return()
     }
   }
-
+  
   # If the table exists but is empty, do not create a variable.
   # Or if the query returned no results, do not create a variable.
   if (nrow(data.parcel) == 0)
@@ -342,10 +355,10 @@ sql.reader <- function(data.file, filename, variable.name)
            envir = .GlobalEnv)
     return()
   }
-
+  
   # Disconnect from database resources. Warn if failure.
   disconnect.success <- dbDisconnect(connection)
-
+  
   if (! disconnect.success)
   {
     warning(paste('Unable to disconnect from database:',
