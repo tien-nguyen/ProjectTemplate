@@ -111,7 +111,7 @@ sql.reader <- function(query.id, query.file, filename, variable.name)
   # We are testing the correctness of query before we open a db connection
   #query.info <- ProjectTemplate:::translate.dcf(paste("data/", query.file, sep=""))
   source(paste("data/", query.file, sep=""))
-  if ( nrow(query.list) < query.id ){
+  if ( length(query.list) < query.id ){
     warning('query.id is out of range.')
     return()
   }
@@ -320,7 +320,10 @@ sql.reader <- function(query.id, query.file, filename, variable.name)
       # Do string interpolation
       require.package('GetoptLong')
       query <- qq(query)
+    }else{
+      query <- as.character(query)
     }
+    print(query)
     data.parcel <- try(dbGetQuery(connection, query))
     err <- dbGetException(connection)
     
@@ -342,6 +345,7 @@ sql.reader <- function(query.id, query.file, filename, variable.name)
                     err$errorMsg,
                     "'",
                     sep = ''))
+      disconnect.success <- dbDisconnect(connection)
       return()
     }
   }
@@ -353,6 +357,7 @@ sql.reader <- function(query.id, query.file, filename, variable.name)
     assign(variable.name,
            NULL,
            envir = .GlobalEnv)
+    disconnect.success <- dbDisconnect(connection)
     return()
   }
   
